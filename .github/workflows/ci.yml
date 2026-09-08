@@ -4,7 +4,8 @@
 # Versions vérifiées le 2026-09-05 :
 #   - actions/checkout@v7      (dernier tag publié : v7.0.1)
 #   - actions/setup-node@v7    (release v7.0.0 du 2026-07)
-#   - node-version: 22         (Juice Shop v20.1.1 déclare engines.node = "22 - 26")
+#   - node-version: 24         (embarque npm 11.19.0 ; le npm 10.9.x livre avec Node 22
+#                               plante sur la resolution des peers de vitest, cote frontend)
 name: ci
 
 on: [push, pull_request]
@@ -16,7 +17,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -27,7 +28,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run lint
