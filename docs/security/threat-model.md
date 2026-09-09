@@ -76,7 +76,24 @@ Trust boundaries identifiées :
 
 | Menace STRIDE (ligne) | Événement redouté associé | Scénario de risque (source -> chemin -> impact) |
 |---|---|---|
+| #1 - Usurpation par jeton JWT forgé | ER1 et ER2 | Cybercriminel externe -> récupération de la clé privée dans le dépôt public puis création d'un JWT privilégié -> accès aux données clients et modification frauduleuse d'opérations métier. |
+| #3 - Accès ou modification d'un panier tiers | ER2 | Client malveillant authentifié -> modification de l'identifiant `:id` à la frontière client/API -> consultation puis manipulation d'une commande qui ne lui appartient pas, avec fraude ou litige. |
+| #5 - Mots de passe stockés en MD5 | ER1 | Cybercriminel externe -> extraction de la table `Users` par une autre vulnérabilité puis cassage hors ligne des empreintes MD5 -> compromission de comptes, fuite de données personnelles et préjudice RGPD. |
+| #7 - Répertoires et fichiers sensibles exposés | ER1 | Visiteur anonyme -> énumération de `/ftp` ou `/support/logs` et téléchargement d'un fichier sensible -> divulgation d'informations clients ou d'éléments facilitant une compromission plus large. |
+| #10 - Épuisement des ressources de l'API B2B | ER3 | Client B2B compromis ou utilisateur avec jeton forgé -> envoi parallèle de nombreuses expressions `orderLinesData` coûteuses -> saturation du processus Express et indisponibilité de la boutique. |
+| #11 - Auto-attribution du rôle administrateur | ER1 et ER2 | Visiteur externe -> ajout de `role: admin` au corps d'inscription accepté par le modèle -> création d'un compte privilégié, accès aux données clients et opérations métier frauduleuses. |
+| #12 - Contrôle de rôle absent sur des endpoints sensibles | ER2 | Client authentifié -> appel d'une opération administrative protégée uniquement par `isAuthorized()` -> création ou altération de produits et de leurs données commerciales, avec impact sur les commandes ou montants. |
+| #13 - Lecture de fichiers locaux par XXE | ER1 | Client externe -> upload d'un XML contenant une entité externe -> lecture d'un fichier local, d'un journal ou d'une clé puis divulgation ou réutilisation des informations obtenues. |
 
 ## 5. Suivi
 
-Les exigences de priorité H seront rattachées aux contrôles automatisés des séances 3 à 5, à un finding d'audit de la séance 8 ou au plan de remédiation de la séance 9.
+| Exigence H | Contrôle ou traitement prévu |
+|---|---|
+| EX-01 - Gestion des clés JWT | S3 : règles Semgrep `hardcoded-secret` et scan d'historique gitleaks ; le finding doit bloquer la CI. |
+| EX-03 - Appartenance des paniers | S5 : test de reproduction puis correctif de conception dans `routes/basket.ts`, avec vérification des réponses 200/403. |
+| EX-05 - Hachage robuste des mots de passe | S3 : règle Semgrep ciblée `weak-crypto` sur MD5 ; suivi du finding dans le triage S3. |
+| EX-07 - Protection des fichiers exposés | S5 : observations du scan DAST ; S8 : finding d'audit dédié sur l'indexation et les contrôles d'accès aux fichiers. |
+| EX-10 - Traitement sûr des commandes B2B | S8 : test d'épuisement de ressources borné et finding d'audit ; S9 : plan de remédiation et critères de quota. |
+| EX-11 - Inscription sans choix de rôle | S8 : test d'élévation de privilège sur `/api/Users` et finding d'audit ; S9 : remédiation par liste blanche de champs. |
+| EX-12 - RBAC sur les endpoints sensibles | S8 : matrice de tests par rôle et finding d'audit ; S9 : plan de remédiation avec refus par défaut. |
+| EX-13 - Parseur XML sûr | S8 : test XXE contrôlé et finding d'audit ; S9 : remédiation avec DTD et entités externes désactivées. |
