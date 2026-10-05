@@ -47,3 +47,59 @@ jobs:
         run: |
           echo "::error::npm audit (HIGH/CRITICAL) ou OSV a détecté une vulnérabilité ou échoué"
           exit 1
+
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: SBOM CycloneDX
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: v0.74.0
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: sbom.cdx.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: error
+
+  image-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build de l'image
+        run: docker build -f Dockerfile.ci -t juice-shop:ci .
+      - name: Trivy image
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: v0.74.0
+          scan-type: image
+          image-ref: juice-shop:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-image.sarif
+          exit-code: "1"
+      - name: Upload SARIF vers l'onglet Security
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+      - name: Publier le rapport d'image
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-image-sarif
+          path: trivy-image.sarif
+      - name: Seuil de blocage
+        if: always() && steps.trivy.outcome == 'failure'
+        run: |
+          echo "::error::Vulnérabilité HIGH/CRITICAL dans l'image ou échec de Trivy"
+          exit 1
