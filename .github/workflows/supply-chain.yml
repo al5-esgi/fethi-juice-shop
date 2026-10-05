@@ -72,7 +72,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build de l'image
-        run: docker build -f Dockerfile.ci -t juice-shop:ci .
+        run: docker build -f Dockerfile.hardened -t juice-shop:hardened .
+      - name: Vérifier le démarrage de l'image durcie
+        run: |
+          docker run --detach --name juice-shop-smoke \
+            --publish 127.0.0.1:3000:3000 juice-shop:hardened
+          trap 'docker logs --tail 30 juice-shop-smoke; docker stop juice-shop-smoke' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/rest/admin/application-version; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
       - name: Trivy image
         id: trivy
         continue-on-error: true
@@ -80,9 +92,10 @@ jobs:
         with:
           version: v0.74.0
           scan-type: image
-          image-ref: juice-shop:ci
+          image-ref: juice-shop:hardened
           scanners: vuln
           severity: HIGH,CRITICAL
+          limit-severities-for-sarif: "true"
           format: sarif
           output: trivy-image.sarif
           exit-code: "1"

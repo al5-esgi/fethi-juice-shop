@@ -1,0 +1,24 @@
+FROM node:24 AS builder
+WORKDIR /juice-shop
+COPY . .
+RUN npm ci --no-audit --no-fund
+# Le postinstall tolère un échec du serveur ; ce contrôle doit, lui, bloquer le build.
+RUN npm run build:server
+RUN npm prune --omit=dev --ignore-scripts --no-audit --no-fund
+
+# Les sources ci-dessous sont lues à l'exécution par les exercices de code Juice Shop.
+RUN mkdir -p /runtime/frontend/src logs \
+    && cp -a .well-known build node_modules config data encryptionkeys ftp i18n lib models \
+        routes uploads views logs package.json LICENSE ctf.key server.ts swagger.yml /runtime/ \
+    && cp -a frontend/dist /runtime/frontend/ \
+    && cp -a frontend/src/app /runtime/frontend/src/ \
+    && cp frontend/package.json /runtime/frontend/ \
+    && rm -rf /runtime/build/test /runtime/build/cypress /runtime/build/rsn \
+    && rm -f /runtime/ftp/legal.md /runtime/i18n/*.json
+
+FROM gcr.io/distroless/nodejs24-debian13 AS runtime
+WORKDIR /juice-shop
+COPY --from=builder --chown=65532:0 /runtime/ .
+USER 65532
+EXPOSE 3000
+CMD ["/juice-shop/build/app.js"]
