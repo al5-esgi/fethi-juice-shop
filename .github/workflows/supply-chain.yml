@@ -1,0 +1,118 @@
+name: supply-chain
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  deps-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: npm audit
+        id: npm-audit
+        continue-on-error: true
+        run: npm audit --audit-level=high --json > npm-audit.json
+
+      - name: osv-scanner
+        id: osv
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
+        with:
+          scan-args: |-
+            scan
+            source
+            --lockfile=package-lock.json
+            --format=json
+            --output-file=osv-results.json
+
+      - name: Publier les rapports de dépendances
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-reports
+          path: |
+            npm-audit.json
+            osv-results.json
+          if-no-files-found: error
+
+      - name: Seuil de blocage
+        if: always() && (steps.npm-audit.outcome == 'failure' || steps.osv.outcome == 'failure')
+        run: |
+          echo "::error::npm audit (HIGH/CRITICAL) ou OSV a détecté une vulnérabilité ou échoué"
+          exit 1
+
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: SBOM CycloneDX
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: v0.74.0
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: sbom.cdx.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: error
+
+  image-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build de l'image
+        run: docker build -f Dockerfile.hardened -t juice-shop:hardened .
+      - name: Vérifier le démarrage de l'image durcie
+        run: |
+          docker run --detach --name juice-shop-smoke \
+            --publish 127.0.0.1:3000:3000 juice-shop:hardened
+          trap 'docker logs --tail 30 juice-shop-smoke; docker stop juice-shop-smoke' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/rest/admin/application-version; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+      - name: Trivy image
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: v0.74.0
+          scan-type: image
+          image-ref: juice-shop:hardened
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          limit-severities-for-sarif: "true"
+          format: sarif
+          output: trivy-image.sarif
+          exit-code: "1"
+      - name: Upload SARIF vers l'onglet Security
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+      - name: Publier le rapport d'image
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-image-sarif
+          path: trivy-image.sarif
+      - name: Seuil de blocage
+        if: always() && steps.trivy.outcome == 'failure'
+        run: |
+          echo "::error::Vulnérabilité HIGH/CRITICAL dans l'image ou échec de Trivy"
+          exit 1
