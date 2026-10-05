@@ -1,0 +1,49 @@
+name: supply-chain
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  deps-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: npm audit
+        id: npm-audit
+        continue-on-error: true
+        run: npm audit --audit-level=high --json > npm-audit.json
+
+      - name: osv-scanner
+        id: osv
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
+        with:
+          scan-args: |-
+            scan
+            source
+            --lockfile=package-lock.json
+            --format=json
+            --output-file=osv-results.json
+
+      - name: Publier les rapports de dépendances
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-reports
+          path: |
+            npm-audit.json
+            osv-results.json
+          if-no-files-found: error
+
+      - name: Seuil de blocage
+        if: always() && (steps.npm-audit.outcome == 'failure' || steps.osv.outcome == 'failure')
+        run: |
+          echo "::error::npm audit (HIGH/CRITICAL) ou OSV a détecté une vulnérabilité ou échoué"
+          exit 1
